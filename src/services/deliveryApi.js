@@ -498,6 +498,13 @@ export async function fetchDeliveryStats(deliveryId) {
       .eq("delivery_personnel_id", deliveryId)
       .in("status", ["picked_up", "out_for_delivery"]);
 
+    // Get ready for pickup deliveries assigned to this rider
+    const { count: readyForPickup } = await supabase
+      .from("chawp_orders")
+      .select("*", { count: "exact", head: true })
+      .eq("delivery_personnel_id", deliveryId)
+      .in("status", ["ready", "ready_for_pickup"]);
+
     // Get delivery person rating
     const { data: deliveryData } = await supabase
       .from("chawp_delivery_personnel")
@@ -511,6 +518,7 @@ export async function fetchDeliveryStats(deliveryId) {
         totalDeliveries: totalDeliveries || 0,
         todayDeliveries: todayDeliveries || 0,
         activeDeliveries: activeDeliveries || 0,
+        readyForPickup: readyForPickup || 0,
         rating: deliveryData?.rating || 0,
       },
     };
@@ -523,6 +531,7 @@ export async function fetchDeliveryStats(deliveryId) {
         totalDeliveries: 0,
         todayDeliveries: 0,
         activeDeliveries: 0,
+        readyForPickup: 0,
         rating: 0,
       },
     };

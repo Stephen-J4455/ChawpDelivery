@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -14,20 +14,25 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing, radii } from "../theme";
+import { colors, spacing, radii, shadows } from "../theme";
 import { useDeliveryAuth } from "../contexts/DeliveryAuthContext";
 import { fetchMyDeliveries, updateOrderStatus } from "../services/deliveryApi";
 import { useNotification } from "../contexts/NotificationContext";
 
+const READY_STATUSES = ["ready", "ready_for_pickup"];
+const ACTIVE_STATUSES = ["picked_up", "in_transit", "out_for_delivery"];
+
 export default function OrdersPage() {
   const { delivery } = useDeliveryAuth();
   const { showSuccess, showError } = useNotification();
+
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [activeFilter, setActiveFilter] = useState("all");
 
   useEffect(() => {
     if (delivery?.delivery_id) {
@@ -45,7 +50,7 @@ export default function OrdersPage() {
 
     const result = await fetchMyDeliveries(delivery.delivery_id);
     if (result.success) {
-      setOrders(result.data);
+      setOrders(result.data || []);
     }
     setLoading(false);
   };
@@ -68,10 +73,11 @@ export default function OrdersPage() {
     if (result.success) {
       await loadOrders();
       setModalVisible(false);
-      showSuccess("Success", `Order marked as ${newStatus.replace("_", " ")}`);
+      showSuccess(`Order marked as ${newStatus.replaceAll("_", " ")}`);
     } else {
-      showError("Error", result.error || "Failed to update order");
+      showError(result.error || "Failed to update order");
     }
+
     setUpdatingStatus(false);
   };
 
@@ -84,11 +90,11 @@ export default function OrdersPage() {
       case "preparing":
         return colors.warning;
       case "ready":
-        return colors.primary;
       case "ready_for_pickup":
         return colors.primary;
       case "picked_up":
         return "#3B82F6";
+      case "in_transit":
       case "out_for_delivery":
         return "#8B5CF6";
       case "delivered":
@@ -102,10 +108,11 @@ export default function OrdersPage() {
     const statusFlow = {
       pending: null,
       confirmed: null,
-      preparing: null, // Wait for vendor to mark ready
+      preparing: null,
       ready: "picked_up",
       ready_for_pickup: "picked_up",
       picked_up: "out_for_delivery",
+      in_transit: "delivered",
       out_for_delivery: "delivered",
     };
     return statusFlow[currentStatus];
@@ -129,7 +136,8 @@ export default function OrdersPage() {
   const getNextStatusLabel = (currentStatus) => {
     const labels = {
       ready: "Mark as Picked Up",
-      picked_up: "Mark In Transit",
+      ready_for_pickup: "Mark as Picked Up",
+      picked_up: "Mark Out for Delivery",
       in_transit: "Mark as Delivered",
       out_for_delivery: "Mark as Delivered",
     };
@@ -148,6 +156,33 @@ export default function OrdersPage() {
       .join(" ");
   };
 
+  const summary = useMemo(() => {
+    const readyCount = orders.filter((order) =>
+      READY_STATUSES.includes(order.status),
+    ).length;
+    const activeCount = orders.filter((order) =>
+      ACTIVE_STATUSES.includes(order.status),
+    ).length;
+
+    return {
+      total: orders.length,
+      ready: readyCount,
+      active: activeCount,
+    };
+  }, [orders]);
+
+  const filteredOrders = useMemo(() => {
+    if (activeFilter === "ready") {
+      return orders.filter((order) => READY_STATUSES.includes(order.status));
+    }
+
+    if (activeFilter === "active") {
+      return orders.filter((order) => ACTIVE_STATUSES.includes(order.status));
+    }
+
+    return orders;
+  }, [orders, activeFilter]);
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -161,20 +196,83 @@ export default function OrdersPage() {
   return (
     <SafeAreaView style={styles.container} edges={["bottom"]}>
       <ScrollView
-        contentContainerStyle={[
-          orders.length === 0 ? styles.emptyContent : styles.content,
-          {
-            paddingTop:
-              (Platform.OS === "android" ? StatusBar.currentHeight : 44) +
-              spacing.md,
-          },
-        ]}
+        contentContainerStyle={styles.content}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {orders.length > 0 ? (
-          orders.map((order) => (
+        <View
+          style={{
+            paddingTop:
+              (Platform.OS === "android" ? StatusBar.currentHeight || 0 : 44) +
+              spacing.md,
+          }}
+        >
+          <View style={styles.headerCard}>
+            <Text style={styles.headerTitle}>Order Queue</Text>
+            <Text style={styles.headerSubTitle}>Manage pickups and drop-offs</Text>
+            <View style={styles.readyPill}>
+              <Ionicons name="bag-check-outline" size={14} color={colors.white} />
+              <Text style={styles.readyPillText}>
+                {summary.ready} Ready for Pickup
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.filterRow}>
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                activeFilter === "all" && styles.filterChipActive,
+              ]}
+              onPress={() => setActiveFilter("all")}
+            >
+              <Text
+                style={[
+                  styles.filterText,
+                  activeFilter === "all" && styles.filterTextActive,
+                ]}
+              >
+                All ({summary.total})
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                activeFilter === "ready" && styles.filterChipActive,
+              ]}
+              onPress={() => setActiveFilter("ready")}
+            >
+              <Text
+                style={[
+                  styles.filterText,
+                  activeFilter === "ready" && styles.filterTextActive,
+                ]}
+              >
+                Ready ({summary.ready})
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                activeFilter === "active" && styles.filterChipActive,
+              ]}
+              onPress={() => setActiveFilter("active")}
+            >
+              <Text
+                style={[
+                  styles.filterText,
+                  activeFilter === "active" && styles.filterTextActive,
+                ]}
+              >
+                In Transit ({summary.active})
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {filteredOrders.length > 0 ? (
+          filteredOrders.map((order) => (
             <TouchableOpacity
               key={order.id}
               style={styles.orderCard}
@@ -187,41 +285,33 @@ export default function OrdersPage() {
                 <View
                   style={[
                     styles.statusBadge,
-                    { backgroundColor: getStatusColor(order.status) + "20" },
+                    { backgroundColor: `${getStatusColor(order.status)}20` },
                   ]}
                 >
                   <Text
-                    style={[
-                      styles.statusText,
-                      { color: getStatusColor(order.status) },
-                    ]}
+                    style={[styles.statusText, { color: getStatusColor(order.status) }]}
                   >
                     {getStatusLabel(order.status)}
                   </Text>
                 </View>
               </View>
 
-              <Text style={styles.orderCustomer}>
-                👤 {order.chawp_user_profiles?.full_name || "Customer"}
+              <Text style={styles.orderMeta}>
+                {order.chawp_user_profiles?.full_name || "Customer"}
               </Text>
-              <Text style={styles.orderAddress}>
-                📍 {order.delivery_address}
-              </Text>
-              {order.chawp_user_profiles?.phone && (
-                <Text style={styles.orderPhone}>
-                  📞 {order.chawp_user_profiles.phone}
-                </Text>
-              )}
+              <Text style={styles.orderMeta}>{order.delivery_address}</Text>
+              {order.chawp_user_profiles?.phone ? (
+                <Text style={styles.orderMeta}>{order.chawp_user_profiles.phone}</Text>
+              ) : null}
 
-              {order.order_items?.length > 0 && (
+              {order.order_items?.length > 0 ? (
                 <View style={styles.orderItemsPreview}>
                   {order.order_items.slice(0, 2).map((item) => {
                     const itemImage =
                       item.meal_image ||
                       item.meal?.image ||
-                      (Array.isArray(item.meal?.images)
-                        ? item.meal.images[0]
-                        : null);
+                      (Array.isArray(item.meal?.images) ? item.meal.images[0] : null);
+
                     return (
                       <View key={item.id} style={styles.orderItemPreviewRow}>
                         {itemImage ? (
@@ -230,17 +320,14 @@ export default function OrdersPage() {
                             style={styles.orderItemPreviewImage}
                           />
                         ) : null}
-                        <Text
-                          style={styles.orderItemPreviewText}
-                          numberOfLines={1}
-                        >
+                        <Text style={styles.orderItemPreviewText} numberOfLines={1}>
                           {item.meal?.title || "Item"} x{item.quantity}
                         </Text>
                       </View>
                     );
                   })}
                 </View>
-              )}
+              ) : null}
 
               <View style={styles.orderFooter}>
                 <Text style={styles.orderAmount}>
@@ -254,31 +341,26 @@ export default function OrdersPage() {
           ))
         ) : (
           <View style={styles.emptyState}>
-            <Ionicons
-              name="list-outline"
-              size={80}
-              color={colors.textSecondary}
-            />
-            <Text style={styles.emptyTitle}>No Orders Yet</Text>
+            <Ionicons name="list-outline" size={70} color={colors.textSecondary} />
+            <Text style={styles.emptyTitle}>No matching orders</Text>
             <Text style={styles.emptyText}>
-              Orders assigned to you will appear here
+              Switch filters or pull down to refresh.
             </Text>
           </View>
         )}
       </ScrollView>
 
-      {/* Order Detail Modal */}
       <Modal
         visible={modalVisible}
         animationType="slide"
-        transparent={true}
+        transparent
         onRequestClose={() => setModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Order Details</Text>
 
-            {selectedOrder && (
+            {selectedOrder ? (
               <ScrollView style={styles.modalBody}>
                 <View style={styles.detailSection}>
                   <Text style={styles.detailLabel}>Status</Text>
@@ -287,7 +369,7 @@ export default function OrdersPage() {
                       styles.statusBadgeLarge,
                       {
                         backgroundColor:
-                          getStatusColor(selectedOrder.status) + "20",
+                          `${getStatusColor(selectedOrder.status)}20`,
                       },
                     ]}
                   >
@@ -307,16 +389,11 @@ export default function OrdersPage() {
                   <Text style={styles.detailValue}>
                     {selectedOrder.chawp_vendors?.name || "Unknown"}
                   </Text>
-                  {selectedOrder.chawp_vendors?.address && (
+                  {selectedOrder.chawp_vendors?.address ? (
                     <Text style={styles.detailSubValue}>
-                      📍 {selectedOrder.chawp_vendors.address}
+                      {selectedOrder.chawp_vendors.address}
                     </Text>
-                  )}
-                  {selectedOrder.chawp_vendors?.phone && (
-                    <Text style={styles.detailSubValue}>
-                      📞 {selectedOrder.chawp_vendors.phone}
-                    </Text>
-                  )}
+                  ) : null}
                 </View>
 
                 <View style={styles.detailSection}>
@@ -324,25 +401,16 @@ export default function OrdersPage() {
                   <Text style={styles.detailValue}>
                     {selectedOrder.chawp_user_profiles?.full_name || "Unknown"}
                   </Text>
-                  {selectedOrder.chawp_user_profiles?.phone && (
+                  {selectedOrder.chawp_user_profiles?.phone ? (
                     <Text style={styles.detailSubValue}>
-                      📞 {selectedOrder.chawp_user_profiles.phone}
+                      {selectedOrder.chawp_user_profiles.phone}
                     </Text>
-                  )}
+                  ) : null}
                 </View>
 
                 <View style={styles.detailSection}>
                   <Text style={styles.detailLabel}>Delivery Address</Text>
-                  <Text style={styles.detailValue}>
-                    {selectedOrder.delivery_address}
-                  </Text>
-                </View>
-
-                <View style={styles.detailSection}>
-                  <Text style={styles.detailLabel}>Order Amount</Text>
-                  <Text style={[styles.detailValue, styles.amountText]}>
-                    GH₵{parseFloat(selectedOrder.total_amount || 0).toFixed(2)}
-                  </Text>
+                  <Text style={styles.detailValue}>{selectedOrder.delivery_address}</Text>
                 </View>
 
                 <View style={styles.detailSection}>
@@ -382,11 +450,6 @@ export default function OrdersPage() {
                                 Specs: {specs.join(", ")}
                               </Text>
                             ) : null}
-                            {item.special_instructions ? (
-                              <Text style={styles.orderItemDetailMeta}>
-                                Note: {item.special_instructions}
-                              </Text>
-                            ) : null}
                           </View>
                         </View>
                       );
@@ -397,22 +460,13 @@ export default function OrdersPage() {
                 </View>
 
                 <View style={styles.detailSection}>
-                  <Text style={styles.detailLabel}>Payment Method</Text>
-                  <Text style={styles.detailValue}>
-                    {selectedOrder.payment_method || "N/A"}
+                  <Text style={styles.detailLabel}>Order Amount</Text>
+                  <Text style={[styles.detailValue, styles.amountText]}>
+                    GH₵{parseFloat(selectedOrder.total_amount || 0).toFixed(2)}
                   </Text>
                 </View>
 
-                {selectedOrder.delivery_notes && (
-                  <View style={styles.detailSection}>
-                    <Text style={styles.detailLabel}>Delivery Notes</Text>
-                    <Text style={styles.detailValue}>
-                      {selectedOrder.delivery_notes}
-                    </Text>
-                  </View>
-                )}
-
-                {getNextStatus(selectedOrder.status) && (
+                {getNextStatus(selectedOrder.status) ? (
                   <TouchableOpacity
                     style={styles.updateButton}
                     onPress={() =>
@@ -424,16 +478,16 @@ export default function OrdersPage() {
                     disabled={updatingStatus}
                   >
                     {updatingStatus ? (
-                      <ActivityIndicator size="small" color="#fff" />
+                      <ActivityIndicator size="small" color={colors.white} />
                     ) : (
                       <Text style={styles.updateButtonText}>
                         {getNextStatusLabel(selectedOrder.status)}
                       </Text>
                     )}
                   </TouchableOpacity>
-                )}
+                ) : null}
               </ScrollView>
-            )}
+            ) : null}
 
             <TouchableOpacity
               style={styles.closeButton}
@@ -460,27 +514,67 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.md,
+    paddingBottom: spacing.xxxl,
   },
-  emptyContent: {
-    flex: 1,
+  headerCard: {
+    backgroundColor: colors.card,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    ...shadows.sm,
   },
-  emptyState: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 60,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: "600",
+  headerTitle: {
     color: colors.textPrimary,
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
+    fontSize: 24,
+    fontWeight: "700",
   },
-  emptyText: {
-    fontSize: 14,
+  headerSubTitle: {
     color: colors.textSecondary,
-    textAlign: "center",
+    marginTop: spacing.xs,
+  },
+  readyPill: {
+    marginTop: spacing.md,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.full,
+  },
+  readyPillText: {
+    color: colors.white,
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  filterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+  },
+  filterChip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.card,
+  },
+  filterChipActive: {
+    backgroundColor: `${colors.primary}20`,
+    borderColor: colors.primary,
+  },
+  filterText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  filterTextActive: {
+    color: colors.primary,
   },
   orderCard: {
     backgroundColor: colors.card,
@@ -488,62 +582,17 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     marginBottom: spacing.md,
     borderWidth: 1,
-    orderItemsPreview: {
-      marginBottom: spacing.sm,
-      gap: spacing.xs,
-    },
-    orderItemPreviewRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
-    },
-    orderItemPreviewImage: {
-      width: 26,
-      height: 26,
-      borderRadius: radii.sm,
-      backgroundColor: colors.border,
-    },
-    orderItemPreviewText: {
-      flex: 1,
-      fontSize: 12,
-      color: colors.textSecondary,
-    },
     borderColor: colors.border,
   },
   orderHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    orderItemDetailRow: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: spacing.sm,
-      marginBottom: spacing.sm,
-    },
-    orderItemDetailImage: {
-      width: 44,
-      height: 44,
-      borderRadius: radii.sm,
-      backgroundColor: colors.border,
-    },
-    orderItemDetailInfo: {
-      flex: 1,
-    },
-    orderItemDetailTitle: {
-      fontSize: 14,
-      color: colors.textPrimary,
-      fontWeight: "600",
-    },
-    orderItemDetailMeta: {
-      fontSize: 12,
-      color: colors.textSecondary,
-      marginTop: 2,
-    },
     alignItems: "center",
     marginBottom: spacing.sm,
   },
   orderVendor: {
-    fontSize: 18,
-    fontWeight: "bold",
+    fontSize: 17,
+    fontWeight: "700",
     color: colors.textPrimary,
     flex: 1,
     marginRight: spacing.sm,
@@ -555,23 +604,34 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 11,
-    fontWeight: "600",
+    fontWeight: "700",
     textTransform: "uppercase",
   },
-  orderCustomer: {
-    fontSize: 14,
+  orderMeta: {
+    fontSize: 13,
     color: colors.textSecondary,
-    marginBottom: spacing.xs / 2,
+    marginBottom: 2,
   },
-  orderAddress: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: spacing.xs / 2,
-  },
-  orderPhone: {
-    fontSize: 14,
-    color: colors.textSecondary,
+  orderItemsPreview: {
+    marginTop: spacing.sm,
     marginBottom: spacing.sm,
+    gap: spacing.xs,
+  },
+  orderItemPreviewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  orderItemPreviewImage: {
+    width: 26,
+    height: 26,
+    borderRadius: radii.sm,
+    backgroundColor: colors.border,
+  },
+  orderItemPreviewText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textSecondary,
   },
   orderFooter: {
     flexDirection: "row",
@@ -584,12 +644,29 @@ const styles = StyleSheet.create({
   },
   orderAmount: {
     fontSize: 20,
-    fontWeight: "bold",
+    fontWeight: "700",
     color: colors.primary,
   },
   orderDate: {
     fontSize: 12,
-    color: colors.textTertiary,
+    color: colors.textSecondary,
+  },
+  emptyState: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 80,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: colors.textPrimary,
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: "center",
   },
   modalOverlay: {
     flex: 1,
@@ -605,7 +682,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: 24,
-    fontWeight: "bold",
+    fontWeight: "700",
     color: colors.textPrimary,
     marginBottom: spacing.lg,
   },
@@ -617,7 +694,7 @@ const styles = StyleSheet.create({
   },
   detailLabel: {
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "700",
     color: colors.textSecondary,
     marginBottom: spacing.xs,
     textTransform: "uppercase",
@@ -629,7 +706,7 @@ const styles = StyleSheet.create({
   detailSubValue: {
     fontSize: 14,
     color: colors.textSecondary,
-    marginTop: spacing.xs / 2,
+    marginTop: 3,
   },
   statusBadgeLarge: {
     paddingHorizontal: spacing.md,
@@ -638,14 +715,39 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   statusTextLarge: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "700",
     textTransform: "uppercase",
   },
   amountText: {
     fontSize: 24,
-    fontWeight: "bold",
+    fontWeight: "700",
     color: colors.primary,
+  },
+  orderItemDetailRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  orderItemDetailImage: {
+    width: 44,
+    height: 44,
+    borderRadius: radii.sm,
+    backgroundColor: colors.border,
+  },
+  orderItemDetailInfo: {
+    flex: 1,
+  },
+  orderItemDetailTitle: {
+    fontSize: 14,
+    color: colors.textPrimary,
+    fontWeight: "700",
+  },
+  orderItemDetailMeta: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   updateButton: {
     backgroundColor: colors.primary,
@@ -657,7 +759,7 @@ const styles = StyleSheet.create({
   updateButtonText: {
     color: colors.white,
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   closeButton: {
     backgroundColor: colors.card,
@@ -671,6 +773,6 @@ const styles = StyleSheet.create({
   closeButtonText: {
     color: colors.textPrimary,
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "700",
   },
 });

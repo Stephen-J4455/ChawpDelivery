@@ -17,6 +17,7 @@ import { colors, spacing, radii, shadows } from "../theme";
 import { useDeliveryAuth } from "../contexts/DeliveryAuthContext";
 import { useNotification } from "../contexts/NotificationContext";
 import { supabase } from "../config/supabase";
+import { fetchMyDeliveries } from "../services/deliveryApi";
 
 export default function ProfilePage() {
   const { delivery, signOut } = useDeliveryAuth();
@@ -60,12 +61,34 @@ export default function ProfilePage() {
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteReason, setDeleteReason] = useState("");
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [orderSummary, setOrderSummary] = useState({
+    readyForPickup: 0,
+    inTransit: 0,
+  });
 
   useEffect(() => {
     if (delivery?.delivery_id) {
       loadPaymentDetails();
+      loadOrderSummary();
     }
   }, [delivery?.delivery_id]);
+
+  const loadOrderSummary = async () => {
+    if (!delivery?.delivery_id) return;
+
+    const result = await fetchMyDeliveries(delivery.delivery_id);
+    if (!result.success) return;
+
+    const deliveryOrders = result.data || [];
+    const readyForPickup = deliveryOrders.filter((order) =>
+      ["ready", "ready_for_pickup"].includes(order.status),
+    ).length;
+    const inTransit = deliveryOrders.filter((order) =>
+      ["picked_up", "in_transit", "out_for_delivery"].includes(order.status),
+    ).length;
+
+    setOrderSummary({ readyForPickup, inTransit });
+  };
 
   const filteredGhanaBanks = useMemo(() => {
     const query = bankSearchQuery.trim().toLowerCase();
@@ -454,18 +477,57 @@ export default function ProfilePage() {
             spacing.lg,
         }}
       >
-        {/* Profile Header */}
-        <View style={styles.profileHeader}>
+        <View style={styles.profileHero}>
           <View style={styles.avatar}>
-            <Ionicons name="person" size={40} color={colors.primary} />
+            <Ionicons name="person" size={34} color={colors.primary} />
           </View>
-          <Text style={styles.name}>
-            {delivery?.full_name || "Delivery Person"}
-          </Text>
-          <Text style={styles.email}>{delivery?.email || ""}</Text>
+          <View style={styles.profileTextWrap}>
+            <Text style={styles.name}>
+              {delivery?.full_name || "Delivery Person"}
+            </Text>
+            <Text style={styles.email}>{delivery?.email || ""}</Text>
+          </View>
+          <View
+            style={[
+              styles.verificationPill,
+              {
+                backgroundColor: delivery?.is_verified
+                  ? `${colors.success}22`
+                  : `${colors.warning}22`,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.verificationPillText,
+                {
+                  color: delivery?.is_verified
+                    ? colors.success
+                    : colors.warning,
+                },
+              ]}
+            >
+              {delivery?.is_verified ? "Verified" : "Pending"}
+            </Text>
+          </View>
         </View>
 
-        {/* Profile Info */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Operations Snapshot</Text>
+          <View style={styles.snapshotRow}>
+            <View style={styles.snapshotCard}>
+              <Text style={styles.snapshotLabel}>Ready for Pickup</Text>
+              <Text style={styles.snapshotValue}>
+                {orderSummary.readyForPickup}
+              </Text>
+            </View>
+            <View style={styles.snapshotCard}>
+              <Text style={styles.snapshotLabel}>In Transit</Text>
+              <Text style={styles.snapshotValue}>{orderSummary.inTransit}</Text>
+            </View>
+          </View>
+        </View>
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Vehicle Information</Text>
           <View style={styles.infoCard}>
@@ -481,19 +543,19 @@ export default function ProfilePage() {
                 {delivery?.vehicle_registration || "N/A"}
               </Text>
             </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Status</Text>
+            <View style={[styles.infoRow, styles.infoRowNoBorder]}>
+              <Text style={styles.infoLabel}>Availability</Text>
               <Text
                 style={[
                   styles.infoValue,
                   {
-                    color: delivery?.is_verified
+                    color: delivery?.is_available
                       ? colors.success
-                      : colors.warning,
+                      : colors.textSecondary,
                   },
                 ]}
               >
-                {delivery?.is_verified ? "Verified" : "Pending Verification"}
+                {delivery?.is_available ? "Online" : "Offline"}
               </Text>
             </View>
           </View>
@@ -1040,30 +1102,49 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
   },
-  profileHeader: {
+  profileHero: {
+    flexDirection: "row",
     alignItems: "center",
-    paddingVertical: spacing.xl,
+    backgroundColor: colors.card,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
     marginBottom: spacing.lg,
+    ...shadows.sm,
   },
   avatar: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: colors.card,
+    backgroundColor: colors.surface,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: spacing.md,
-    ...shadows.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  profileTextWrap: {
+    flex: 1,
+    paddingHorizontal: spacing.md,
+  },
+  verificationPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.full,
+  },
+  verificationPillText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
   name: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: "700",
     color: colors.textPrimary,
-    marginBottom: spacing.xs,
   },
   email: {
     fontSize: 14,
     color: colors.textSecondary,
+    marginTop: 4,
   },
   section: {
     marginBottom: spacing.xl,
@@ -1087,6 +1168,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  infoRowNoBorder: {
+    borderBottomWidth: 0,
+  },
   infoLabel: {
     fontSize: 14,
     color: colors.textSecondary,
@@ -1095,6 +1179,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: colors.textPrimary,
+  },
+  snapshotRow: {
+    flexDirection: "row",
+    gap: spacing.md,
+  },
+  snapshotCard: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+  },
+  snapshotLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  snapshotValue: {
+    marginTop: spacing.sm,
+    fontSize: 28,
+    color: colors.textPrimary,
+    fontWeight: "700",
   },
   signOutButton: {
     flexDirection: "row",

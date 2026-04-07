@@ -24,6 +24,7 @@ import {
 import { NotificationProvider } from "./src/contexts/NotificationContext";
 import DeliveryAuthScreen from "./src/components/DeliveryAuthScreen";
 import Notification from "./src/components/Notification";
+import ChawpLoading from "./src/components/ChawpLoading";
 import DashboardPage from "./src/pages/DashboardPage";
 import OrdersPage from "./src/pages/OrdersPage";
 import EarningsPage from "./src/pages/EarningsPage";
@@ -82,10 +83,10 @@ function AppContent() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
+      <>
         <ExpoStatusBar style="light" />
-        <ActivityIndicator size="large" color={colors.primary} />
-      </SafeAreaView>
+        <ChawpLoading />
+      </>
     );
   }
 
@@ -225,10 +226,10 @@ export default function App() {
 
   if (versionChecking) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
+      <>
         <ExpoStatusBar style="light" />
-        <ActivityIndicator size="large" color={colors.primary} />
-      </SafeAreaView>
+        <ChawpLoading />
+      </>
     );
   }
 

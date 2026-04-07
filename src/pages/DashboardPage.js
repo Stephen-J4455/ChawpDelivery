@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -25,12 +25,14 @@ export default function DashboardPage() {
   const navigation = useNavigation();
   const { delivery, updateAvailability } = useDeliveryAuth();
   const { showSuccess, showError } = useNotification();
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
     totalDeliveries: 0,
     todayDeliveries: 0,
     activeDeliveries: 0,
+    readyForPickup: 0,
     rating: 0,
   });
   const [earnings, setEarnings] = useState({
@@ -42,17 +44,23 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadDashboardData();
-  }, [delivery]);
+  }, [delivery?.delivery_id]);
 
   const loadDashboardData = async () => {
-    if (!delivery?.delivery_id) return;
+    if (!delivery?.delivery_id) {
+      setLoading(false);
+      return;
+    }
 
-    const statsResult = await fetchDeliveryStats(delivery.delivery_id);
-    const earningsResult = await fetchEarningsStats(delivery.delivery_id);
+    const [statsResult, earningsResult] = await Promise.all([
+      fetchDeliveryStats(delivery.delivery_id),
+      fetchEarningsStats(delivery.delivery_id),
+    ]);
 
     if (statsResult.success) {
       setStats(statsResult.data);
     }
+
     if (earningsResult.success) {
       setEarnings(earningsResult.data);
     }
@@ -75,6 +83,13 @@ export default function DashboardPage() {
     }
   };
 
+  const completionRate = useMemo(() => {
+    const total =
+      stats.totalDeliveries + stats.activeDeliveries + stats.readyForPickup;
+    if (!total) return 0;
+    return Math.round((stats.totalDeliveries / total) * 100);
+  }, [stats]);
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -89,7 +104,11 @@ export default function DashboardPage() {
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingTop: (Platform.OS === 'android' ? StatusBar.currentHeight : 44) + spacing.md }
+          {
+            paddingTop:
+              (Platform.OS === "android" ? StatusBar.currentHeight || 0 : 44) +
+              spacing.md,
+          },
         ]}
         refreshControl={
           <RefreshControl
@@ -97,37 +116,51 @@ export default function DashboardPage() {
             onRefresh={onRefresh}
             tintColor={colors.primary}
           />
-        }>
-        {/* Header */}
-        <View style={styles.header}>
+        }
+      >
+        <View style={styles.headerRow}>
           <View>
-            <Text style={styles.greeting}>Welcome back,</Text>
+            <Text style={styles.welcome}>Dispatch Center</Text>
             <Text style={styles.name}>{delivery?.full_name || "Delivery"}</Text>
           </View>
-          <View style={styles.ratingContainer}>
-            <Ionicons name="star" size={20} color={colors.warning} />
+          <View style={styles.ratingPill}>
+            <Ionicons name="star" size={16} color={colors.warning} />
             <Text style={styles.ratingText}>{stats.rating.toFixed(1)}</Text>
           </View>
         </View>
 
-        {/* Availability Toggle */}
+        <View style={styles.heroCard}>
+          <Text style={styles.heroLabel}>Ready for Pickup</Text>
+          <Text style={styles.heroValue}>{stats.readyForPickup}</Text>
+          <Text style={styles.heroSubtext}>
+            Orders waiting for collection from vendor locations.
+          </Text>
+          <TouchableOpacity
+            style={styles.heroButton}
+            onPress={() => navigation.navigate("Orders")}
+          >
+            <Text style={styles.heroButtonText}>Open Orders Queue</Text>
+            <Ionicons name="arrow-forward" size={16} color={colors.white} />
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.availabilityCard}>
           <View style={styles.availabilityInfo}>
             <Ionicons
               name={
-                delivery?.is_available ? "checkmark-circle" : "close-circle"
+                delivery?.is_available ? "radio-button-on" : "radio-button-off"
               }
-              size={24}
-              color={delivery?.is_available ? colors.success : colors.error}
+              size={18}
+              color={
+                delivery?.is_available ? colors.success : colors.textSecondary
+              }
             />
-            <View style={styles.availabilityText}>
+            <View>
               <Text style={styles.availabilityTitle}>
-                {delivery?.is_available ? "Available for Orders" : "Offline"}
+                {delivery?.is_available ? "Online and receiving" : "Offline"}
               </Text>
               <Text style={styles.availabilitySubtitle}>
-                {delivery?.is_available
-                  ? "You can receive new orders"
-                  : "Turn on to receive orders"}
+                Toggle to control new delivery assignment.
               </Text>
             </View>
           </View>
@@ -139,109 +172,72 @@ export default function DashboardPage() {
           />
         </View>
 
-        {/* Stats Grid */}
-        <View style={styles.statsGrid}>
-          <View
-            style={[
-              styles.statCard,
-              { backgroundColor: colors.primary + "20" },
-            ]}>
-            <Ionicons name="bicycle" size={32} color={colors.primary} />
-            <Text style={styles.statValue}>{stats.todayDeliveries}</Text>
-            <Text style={styles.statLabel}>Today</Text>
+        <View style={styles.kpiGrid}>
+          <View style={styles.kpiCard}>
+            <Text style={styles.kpiLabel}>Today Delivered</Text>
+            <Text style={styles.kpiValue}>{stats.todayDeliveries}</Text>
           </View>
-          <View
-            style={[
-              styles.statCard,
-              { backgroundColor: colors.secondary + "20" },
-            ]}>
-            <Ionicons
-              name="checkmark-done"
-              size={32}
-              color={colors.secondary}
-            />
-            <Text style={styles.statValue}>{stats.totalDeliveries}</Text>
-            <Text style={styles.statLabel}>Total</Text>
+          <View style={styles.kpiCard}>
+            <Text style={styles.kpiLabel}>In Transit</Text>
+            <Text style={styles.kpiValue}>{stats.activeDeliveries}</Text>
           </View>
-          <View
-            style={[
-              styles.statCard,
-              { backgroundColor: colors.warning + "20" },
-            ]}>
-            <Ionicons name="time" size={32} color={colors.warning} />
-            <Text style={styles.statValue}>{stats.activeDeliveries}</Text>
-            <Text style={styles.statLabel}>Active</Text>
+          <View style={styles.kpiCard}>
+            <Text style={styles.kpiLabel}>Completion</Text>
+            <Text style={styles.kpiValue}>{completionRate}%</Text>
+          </View>
+          <View style={styles.kpiCard}>
+            <Text style={styles.kpiLabel}>Total Delivered</Text>
+            <Text style={styles.kpiValue}>{stats.totalDeliveries}</Text>
           </View>
         </View>
 
-        {/* Earnings Summary */}
-        <View style={styles.section}>
+        <View style={styles.earningsCard}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Earnings</Text>
-            <Ionicons name="cash-outline" size={24} color={colors.success} />
+            <Text style={styles.sectionTitle}>Earnings Snapshot</Text>
+            <Ionicons name="wallet-outline" size={18} color={colors.success} />
           </View>
-          <View style={styles.earningsGrid}>
-            <View style={styles.earningItem}>
-              <Text style={styles.earningLabel}>Today</Text>
-              <Text style={styles.earningValue}>
-                GH₵{earnings.today.toFixed(2)}
-              </Text>
-            </View>
-            <View style={styles.earningItem}>
-              <Text style={styles.earningLabel}>This Week</Text>
-              <Text style={styles.earningValue}>
-                GH₵{earnings.week.toFixed(2)}
-              </Text>
-            </View>
-            <View style={styles.earningItem}>
-              <Text style={styles.earningLabel}>This Month</Text>
-              <Text style={styles.earningValue}>
-                GH₵{earnings.month.toFixed(2)}
-              </Text>
-            </View>
-            <View style={styles.earningItem}>
-              <Text style={styles.earningLabel}>All Time</Text>
-              <Text style={[styles.earningValue, { color: colors.success }]}>
-                GH₵{earnings.total.toFixed(2)}
-              </Text>
-            </View>
+          <View style={styles.earningRow}>
+            <Text style={styles.earningLabel}>Today</Text>
+            <Text style={styles.earningValue}>
+              GH₵{earnings.today.toFixed(2)}
+            </Text>
+          </View>
+          <View style={styles.earningRow}>
+            <Text style={styles.earningLabel}>This Week</Text>
+            <Text style={styles.earningValue}>
+              GH₵{earnings.week.toFixed(2)}
+            </Text>
+          </View>
+          <View style={styles.earningRow}>
+            <Text style={styles.earningLabel}>This Month</Text>
+            <Text style={styles.earningValue}>
+              GH₵{earnings.month.toFixed(2)}
+            </Text>
           </View>
         </View>
 
-        {/* Quick Actions */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
+        <View style={styles.actionsCard}>
+          <Text style={styles.sectionTitle}>Quick Access</Text>
           <View style={styles.actionsGrid}>
             <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => navigation.navigate("Orders")}>
-              <Ionicons name="list-outline" size={24} color={colors.primary} />
-              <Text style={styles.actionText}>View Orders</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.actionButton}
-              onPress={() => showSuccess('Navigation feature coming soon!')}>
-              <Ionicons
-                name="location-outline"
-                size={24}
-                color={colors.secondary}
-              />
-              <Text style={styles.actionText}>Navigation</Text>
+              style={styles.actionBtn}
+              onPress={() => navigation.navigate("Orders")}
+            >
+              <Ionicons name="list-outline" size={20} color={colors.primary} />
+              <Text style={styles.actionText}>Orders</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => navigation.navigate("Earnings")}>
-              <Ionicons
-                name="stats-chart-outline"
-                size={24}
-                color={colors.warning}
-              />
+              style={styles.actionBtn}
+              onPress={() => navigation.navigate("Earnings")}
+            >
+              <Ionicons name="cash-outline" size={20} color={colors.accent} />
               <Text style={styles.actionText}>Earnings</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => navigation.navigate("Profile")}>
-              <Ionicons name="person-outline" size={24} color={colors.info} />
+              style={styles.actionBtn}
+              onPress={() => navigation.navigate("Profile")}
+            >
+              <Ionicons name="person-outline" size={20} color={colors.info} />
               <Text style={styles.actionText}>Profile</Text>
             </TouchableOpacity>
           </View>
@@ -267,142 +263,192 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: spacing.lg,
+    paddingBottom: spacing.xxxl,
+    gap: spacing.md,
   },
-  header: {
+  headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: spacing.lg,
   },
-  greeting: {
-    fontSize: 14,
+  welcome: {
     color: colors.textSecondary,
+    fontSize: 13,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
   name: {
-    fontSize: 24,
-    fontWeight: "bold",
     color: colors.textPrimary,
+    fontSize: 24,
+    fontWeight: "700",
+    marginTop: spacing.xs,
   },
-  ratingContainer: {
+  ratingPill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.card,
+    gap: spacing.xs,
+    borderRadius: radii.full,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: radii.md,
-    gap: spacing.xs,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   ratingText: {
-    fontSize: 16,
-    fontWeight: "600",
     color: colors.textPrimary,
+    fontWeight: "700",
   },
-  availabilityCard: {
+  heroCard: {
+    backgroundColor: colors.primary,
+    borderRadius: radii.xl,
+    padding: spacing.xl,
+    ...shadows.md,
+  },
+  heroLabel: {
+    color: colors.gray100,
+    fontSize: 13,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  heroValue: {
+    color: colors.white,
+    fontSize: 48,
+    fontWeight: "800",
+    lineHeight: 52,
+    marginTop: spacing.xs,
+  },
+  heroSubtext: {
+    color: colors.gray100,
+    fontSize: 13,
+    marginTop: spacing.xs,
+  },
+  heroButton: {
+    marginTop: spacing.md,
+    alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: spacing.xs,
+    backgroundColor: colors.primaryDark,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.full,
+  },
+  heroButtonText: {
+    color: colors.white,
+    fontWeight: "700",
+  },
+  availabilityCard: {
     backgroundColor: colors.card,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
     padding: spacing.lg,
-    borderRadius: radii.md,
-    marginBottom: spacing.lg,
-    ...shadows.md,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   availabilityInfo: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.md,
-    flex: 1,
-  },
-  availabilityText: {
-    flex: 1,
+    gap: spacing.sm,
+    flexShrink: 1,
   },
   availabilityTitle: {
-    fontSize: 16,
-    fontWeight: "600",
     color: colors.textPrimary,
-    marginBottom: spacing.xs,
+    fontWeight: "700",
+    fontSize: 15,
   },
   availabilitySubtitle: {
-    fontSize: 13,
     color: colors.textSecondary,
+    fontSize: 12,
+    marginTop: 2,
   },
-  statsGrid: {
+  kpiGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.md,
-    marginBottom: spacing.lg,
   },
-  statCard: {
-    flex: 1,
-    alignItems: "center",
+  kpiCard: {
+    width: "48%",
+    backgroundColor: colors.card,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
     padding: spacing.lg,
-    borderRadius: radii.md,
-    ...shadows.sm,
   },
-  statValue: {
-    fontSize: 24,
-    fontWeight: "bold",
+  kpiLabel: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  kpiValue: {
     color: colors.textPrimary,
+    fontSize: 24,
+    fontWeight: "700",
     marginTop: spacing.sm,
   },
-  statLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  section: {
-    marginBottom: spacing.lg,
+  earningsCard: {
+    backgroundColor: colors.card,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
   },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
     color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: "700",
   },
-  earningsGrid: {
-    backgroundColor: colors.card,
-    borderRadius: radii.md,
-    padding: spacing.lg,
-    ...shadows.md,
-  },
-  earningItem: {
+  earningRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingVertical: spacing.sm,
+    alignItems: "center",
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   earningLabel: {
-    fontSize: 14,
     color: colors.textSecondary,
+    fontSize: 14,
   },
   earningValue: {
-    fontSize: 16,
-    fontWeight: "600",
     color: colors.textPrimary,
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  actionsCard: {
+    backgroundColor: colors.card,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
   },
   actionsGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.md,
-  },
-  actionButton: {
-    flex: 1,
-    minWidth: "45%",
-    backgroundColor: colors.card,
-    padding: spacing.lg,
-    borderRadius: radii.md,
-    alignItems: "center",
     gap: spacing.sm,
-    ...shadows.sm,
+    marginTop: spacing.md,
+  },
+  actionBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    paddingVertical: spacing.md,
+    alignItems: "center",
+    gap: spacing.xs,
   },
   actionText: {
-    fontSize: 13,
     color: colors.textPrimary,
-    fontWeight: "500",
+    fontSize: 13,
+    fontWeight: "600",
   },
 });
