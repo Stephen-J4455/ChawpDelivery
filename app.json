@@ -6,16 +6,10 @@
     "orientation": "portrait",
     "icon": "./assets/delivery_logo.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/delivery_logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#000000"
-    },
-    "notification": {
-      "icon": "./assets/delivery_logo.png",
-      "color": "#FF6B35",
-      "androidMode": "default"
     },
     "plugins": [
       [
@@ -28,14 +22,15 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.stephen_j.ChawpDelivery"
+      "bundleIdentifier": "com.jtrlabs.chawpdelivery",
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/delivery_logo.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.stephen_j.ChawpDelivery",
+      "package": "com.stephenj.chawpdelivery",
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.INTERNET",
@@ -43,8 +38,7 @@
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE"
-      ],
-      "edgeToEdgeEnabled": true
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"

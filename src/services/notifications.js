@@ -75,9 +75,13 @@ export async function registerForPushNotifications() {
     }
 
     try {
-      // Get FCM token (works for standalone apps)
-      token = (await Notifications.getDevicePushTokenAsync()).data;
-      console.log("Delivery FCM Push Token:", token);
+      const projectId =
+        Constants.expoConfig?.extra?.eas?.projectId ||
+        Constants.easConfig?.projectId ||
+        "83df3d90-50ea-411d-a095-7e2c99cadf07";
+
+      token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+      console.log("Delivery Expo Push Token:", token);
 
       // Save token to database
       const {
@@ -87,7 +91,19 @@ export async function registerForPushNotifications() {
         await savePushToken(token, user.id);
       }
     } catch (error) {
-      console.error("Error getting push token:", error);
+      console.error("Error getting Expo push token:", error);
+      try {
+        token = (await Notifications.getDevicePushTokenAsync()).data;
+        console.log("Delivery native push token (fallback):", token);
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user && token) {
+          await savePushToken(token, user.id);
+        }
+      } catch (fallbackError) {
+        console.error("Error getting fallback native push token:", fallbackError);
+      }
     }
   }
 
