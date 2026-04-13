@@ -48,7 +48,7 @@ export async function registerForPushNotifications() {
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#00FF00",
-      sound: "default",
+     
     });
 
     await Notifications.setNotificationChannelAsync("delivery-updates", {
@@ -75,13 +75,16 @@ export async function registerForPushNotifications() {
     }
 
     try {
-      const projectId =
-        Constants.expoConfig?.extra?.eas?.projectId ||
-        Constants.easConfig?.projectId ||
-        "83df3d90-50ea-411d-a095-7e2c99cadf07";
+      token = (await Notifications.getDevicePushTokenAsync()).data;
+      console.log("Delivery native push token:", token);
 
-      token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-      console.log("Delivery Expo Push Token:", token);
+      if (
+        token?.startsWith?.("ExponentPushToken[") ||
+        token?.startsWith?.("ExpoPushToken[")
+      ) {
+        console.error("Delivery Expo token received in FCM-only mode");
+        return null;
+      }
 
       // Save token to database
       const {
@@ -91,19 +94,7 @@ export async function registerForPushNotifications() {
         await savePushToken(token, user.id);
       }
     } catch (error) {
-      console.error("Error getting Expo push token:", error);
-      try {
-        token = (await Notifications.getDevicePushTokenAsync()).data;
-        console.log("Delivery native push token (fallback):", token);
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (user && token) {
-          await savePushToken(token, user.id);
-        }
-      } catch (fallbackError) {
-        console.error("Error getting fallback native push token:", fallbackError);
-      }
+      console.error("Error getting native push token:", error);
     }
   }
 

@@ -1,5 +1,13 @@
 import { supabase } from "../config/supabase";
 
+const EXPO_PUSH_TOKEN_REGEX = /^(ExponentPushToken|ExpoPushToken)\[/;
+
+function filterFcmTokens(tokens = []) {
+  return [...new Set(tokens)]
+    .filter((token) => typeof token === "string" && token.length > 0)
+    .filter((token) => !EXPO_PUSH_TOKEN_REGEX.test(token));
+}
+
 // ==================== ORDER MANAGEMENT ====================
 
 export async function fetchAvailableOrders(deliveryId) {
@@ -265,15 +273,23 @@ export async function updateOrderStatus(orderId, status, additionalData = {}) {
           data.chawp_user_profiles?.push_token,
         ].filter(Boolean);
 
-        if (tokens.length > 0) {
+        const fcmTokens = filterFcmTokens(tokens);
+        const skippedExpoTokens = tokens.length - fcmTokens.length;
+        if (skippedExpoTokens > 0) {
+          console.warn(
+            `[Delivery] Skipping ${skippedExpoTokens} Expo token(s) for FCM-only mode`,
+          );
+        }
+
+        if (fcmTokens.length > 0) {
           console.log(
-            `[Delivery] Sending notification to ${tokens.length} customer device(s)`,
+            `[Delivery] Sending notification to ${fcmTokens.length} customer device(s)`,
           );
 
           const { data: notifResult, error: notifError } =
             await supabase.functions.invoke("send-push-notification", {
               body: {
-                tokens: tokens,
+                tokens: fcmTokens,
                 title: title,
                 body: message,
                 data: {
@@ -294,7 +310,7 @@ export async function updateOrderStatus(orderId, status, additionalData = {}) {
             );
           }
         } else {
-          console.log("[Delivery] No push tokens found for customer");
+          console.log("[Delivery] No FCM tokens found for customer");
         }
       } catch (notifError) {
         console.error(
